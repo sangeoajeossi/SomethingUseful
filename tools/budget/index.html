@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>소비 가능 금액 · Something Useful</title>
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131210" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="../../manifest.webmanifest">
+<link rel="icon" href="../../icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="../../icons/apple-touch-icon.png">
+<link rel="stylesheet" href="../../assets/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="back" href="../../">← 홈</a>
+  <h1>소비 가능 금액</h1>
+</header>
+<main>
+  <section class="panel">
+    <p class="eyebrow">오늘 쓸 수 있는 금액</p>
+    <p class="big" id="todayLeft">–</p>
+    <p class="sub" id="todayNote">설정에서 월급날과 월급을 넣으면 계산돼요.</p>
+    <dl class="stats">
+      <div><dt>내일부터 하루</dt><dd id="daily">–</dd></div>
+      <div><dt>월급날까지</dt><dd id="daysLeft">–</dd></div>
+      <div><dt>모은 금액</dt><dd id="pool">–</dd></div>
+    </dl>
+  </section>
+
+  <p class="notice" id="notice" hidden></p>
+
+  <details class="panel" id="settings">
+    <summary>설정</summary>
+    <div class="field">
+      <label class="label" for="payday">월급날</label>
+      <select id="payday" class="select"></select>
+      <p class="help">그 달에 없는 날짜(예: 31일)면 그 달 마지막 날로 봐요.</p>
+    </div>
+    <div class="field">
+      <label class="label" for="salary">이번 달 월급</label>
+      <form class="inline" id="salaryForm" autocomplete="off">
+        <input id="salary" class="input money" inputmode="numeric" placeholder="0">
+        <label class="check"><input type="checkbox" id="fixedSalary"> 고정 월급</label>
+        <button class="btn btn-primary" type="submit">확인</button>
+      </form>
+      <p class="help" id="salaryHelp">고정 월급에 체크하면 다음 달에도 같은 금액이 자동으로 들어가요. 체크를 끄면 월급날마다 새로 입력해야 해요.</p>
+      <ul class="list" id="salaryLog"></ul>
+    </div>
+    <div class="field">
+      <p class="label">고정지출 <span class="hint" id="fixedTotal">0원</span></p>
+      <form class="inline" id="fixedForm" autocomplete="off">
+        <input class="input" id="fixedName" placeholder="항목 (예: 월세)" aria-label="고정지출 항목">
+        <input class="input money" id="fixedAmount" inputmode="numeric" placeholder="금액" aria-label="고정지출 금액" required>
+        <button class="btn" type="submit">추가</button>
+      </form>
+      <ul class="list" id="fixedList"></ul>
+    </div>
+  </details>
+
+  <section class="panel">
+    <h2>소비 입력</h2>
+    <form id="spendForm" class="stack" autocomplete="off">
+      <div class="inline">
+        <input class="input money" id="spendAmount" inputmode="numeric" placeholder="금액" aria-label="금액" required>
+        <input class="input" id="spendMemo" placeholder="내용 (선택)" aria-label="내용">
+      </div>
+      <div class="inline">
+        <input class="input" type="date" id="spendDate" aria-label="날짜" required>
+        <button class="btn btn-primary" type="submit">추가</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>이번 기간 소비 <span class="hint" id="periodLabel"></span></h2>
+    <p class="empty" id="spendEmpty">아직 입력한 소비가 없어요.</p>
+    <div id="spendList"></div>
+  </section>
+
+  <section class="panel" id="historyPanel" hidden>
+    <h2>기록 <span class="hint">월급 텀별</span></h2>
+    <ul class="list" id="historyList"></ul>
+  </section>
+</main>
+<script src="../../assets/app.js"></script>
+<script>
+  // ---------- 유틸 ----------
+  const KEY = "su:budget";
+  const $ = (id) => document.getElementById(id);
+  const DAY = 86400000;
+  const pad = (n) => String(n).padStart(2, "0");
+  const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const fromYmd = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+  const won = (n) => Math.round(n).toLocaleString("ko-KR") + "원";
+  const digits = (s) => Number(String(s).replace(/[^\d]/g, "")) || 0;
+  const comma = (n) => (n ? Number(n).toLocaleString("ko-KR") : "");
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
+  const dateLabel = (s) => { const d = fromYmd(s); return `${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEK[d.getDay()]})`; };
+  const shortDate = (s) => { const d = fromYmd(s); return `${d.getMonth() + 1}.${d.getDate()}`; };
+  const monthLabel = (s) => `${fromYmd(s).getMonth() + 1}월 월급`;
+
+  // ---------- 기간 계산 ----------
+  // 월급날(payday)을 기준으로, 오늘이 속한 기간의 시작일과 다음 월급날을 돌려줍니다.
+  const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
+  const paydayOf = (y, m, pd) => new Date(y, m, Math.min(pd, daysInMonth(y, m)));
+  function periodFor(today, pd) {
+    const y = today.getFullYear(), m = today.getMonth();
+    const thisPay = paydayOf(y, m, pd);
+    if (today >= thisPay) return { start: thisPay, end: paydayOf(y, m + 1, pd) };
+    return { start: paydayOf(y, m - 1, pd), end: thisPay };
+  }
+
+  // ---------- 상태 ----------
+  const defaults = { payday: 25, salary: null, fixedSalary: false, fixed: [], expenses: [], periodStart: null, history: [] };
+  let state = load();
+  let editingFixed = null; // 지금 수정 중인 고정지출 id
+  function load() {
+    try { return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; }
+    catch { return { ...defaults }; }
+  }
+  function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+
+  const today = fromYmd(ymd(new Date()));
+  const fixedTotal = () => state.fixed.reduce((a, x) => a + x.amount, 0);
+  const sumExpenses = (from, to) => state.expenses.filter((x) => x.date >= from && x.date < to).reduce((a, x) => a + x.amount, 0);
+
+  // 월급날이 지나 새 기간이 시작됐으면: 지난 기간(월급 텀)의 월급·고정지출·소비·모은 금액을 기록에 남기고,
+  // 고정 월급이 아니면 월급을 비웁니다.
+  function rollover() {
+    const cur = periodFor(today, state.payday);
+    const startStr = ymd(cur.start);
+    if (state.periodStart === startStr) return;
+    if (state.periodStart) {
+      const old = periodFor(fromYmd(state.periodStart), state.payday);
+      if (state.salary) {
+        const spent = sumExpenses(ymd(old.start), ymd(old.end));
+        const fixed = fixedTotal();
+        state.history.unshift({ start: ymd(old.start), end: ymd(old.end), salary: state.salary, fixed, spent, saved: state.salary - fixed - spent });
+      }
+      if (!state.fixedSalary) state.salary = null;
+      showNotice("새 기간이 시작됐어요." + (state.fixedSalary ? "" : " 이번 달 월급을 입력해 주세요."));
+    }
+    state.periodStart = startStr;
+    save();
+  }
+
+  function showNotice(text) { $("notice").textContent = text; $("notice").hidden = false; }
+
+  // ---------- 렌더 ----------
+  function render() {
+    const { start, end } = periodFor(today, state.payday);
+    const s = ymd(start), e = ymd(end), t = ymd(today);
+    const tomorrow = ymd(new Date(today.getTime() + DAY));
+    const daysLeft = Math.max(1, Math.round((end - today) / DAY));
+    const spentPeriod = sumExpenses(s, e);
+    const spentToday = sumExpenses(t, tomorrow);
+    const ready = state.salary > 0;
+
+    $("periodLabel").textContent = `${shortDate(s)} ~ ${shortDate(ymd(new Date(end.getTime() - DAY)))}`;
+    $("daysLeft").textContent = `${daysLeft}일`;
+
+    if (ready) {
+      const pool = state.salary - fixedTotal() - spentPeriod;        // 월급날까지 남은 금액 = 모은 금액
+      const todayBudget = (pool + spentToday) / daysLeft;            // 오늘 하루 예산 (오늘 쓰기 전 기준이라 하루 동안 고정)
+      const todayLeft = todayBudget - spentToday;                    // 오늘 더 쓸 수 있는 금액 (초과하면 마이너스)
+      const fromTomorrow = daysLeft > 1 ? pool / (daysLeft - 1) : null; // 내일부터 하루 예산 (소비 넣을 때마다 바로 바뀜)
+      $("todayLeft").textContent = won(todayLeft);
+      $("todayLeft").classList.toggle("over", todayLeft < 0);
+      $("daily").textContent = fromTomorrow === null ? "내일 월급날" : won(fromTomorrow);
+      $("daily").classList.toggle("over", fromTomorrow !== null && fromTomorrow < 0);
+      $("pool").textContent = won(pool);
+      $("pool").classList.toggle("over", pool < 0);
+      $("todayNote").textContent =
+        pool < 0 ? "이번 기간 예산을 넘었어요." :
+        spentToday > 0 ? `오늘 ${won(spentToday)} 썼어요.` :
+        "오늘은 아직 쓴 게 없어요.";
+    } else {
+      $("todayLeft").textContent = "–";
+      $("todayLeft").classList.remove("over");
+      $("daily").textContent = "–";
+      $("daily").classList.remove("over");
+      $("pool").textContent = "–";
+      $("pool").classList.remove("over");
+      $("todayNote").textContent = "설정에서 월급날과 월급을 넣으면 계산돼요.";
+      $("settings").open = true;
+    }
+
+    // 설정 값
+    $("payday").value = state.payday;
+    if (document.activeElement !== $("salary")) $("salary").value = comma(state.salary);
+    $("fixedSalary").checked = state.fixedSalary;
+    // 이번 기간 월급은 입력됐는지 확인용으로만 보여주고, 다음 기간이 되면 아래 '기록'으로 넘어갑니다.
+    $("salaryLog").innerHTML = state.salary ? `<li>
+      <span class="grow">${monthLabel(s)}</span>
+      <span class="amount">${won(state.salary)}</span>
+    </li>` : "";
+
+    $("fixedTotal").textContent = won(fixedTotal());
+    $("fixedList").innerHTML = state.fixed.map((x) => x.id === editingFixed ? `<li class="editing">
+      <form class="edit-form stack" data-edit-fixed="${x.id}" autocomplete="off">
+        <div class="inline">
+          <input class="input" name="name" value="${esc(x.name)}" placeholder="항목" aria-label="고정지출 항목">
+          <input class="input money" name="amount" value="${comma(x.amount)}" inputmode="numeric" placeholder="금액" aria-label="고정지출 금액" required>
+        </div>
+        <div class="inline">
+          <button class="btn btn-sm btn-primary" type="submit">저장</button>
+          <button class="btn btn-sm" type="button" data-cancel-edit>취소</button>
+        </div>
+      </form>
+    </li>` : `<li>
+      <span class="grow">${esc(x.name || "항목")}</span>
+      <span class="amount">${won(x.amount)}</span>
+      <button class="btn btn-sm" type="button" data-edit-fixed-btn="${x.id}">수정</button>
+      <button class="btn btn-sm" type="button" data-del-fixed="${x.id}">삭제</button>
+    </li>`).join("");
+
+    // 이번 기간 소비 (날짜별 묶음, 최신순)
+    const items = state.expenses.filter((x) => x.date >= s && x.date < e).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
+    $("spendEmpty").hidden = items.length > 0;
+    const byDate = new Map();
+    for (const x of items) { if (!byDate.has(x.date)) byDate.set(x.date, []); byDate.get(x.date).push(x); }
+    $("spendList").innerHTML = [...byDate].map(([date, list]) => `<section class="day">
+      <h3><span>${dateLabel(date)}${date === t ? " · 오늘" : ""}</span><span>${won(list.reduce((a, x) => a + x.amount, 0))}</span></h3>
+      <ul class="list">${list.map((x) => `<li>
+        <span class="grow">${esc(x.memo || "소비")}</span>
+        <span class="amount">${won(x.amount)}</span>
+        <button class="btn btn-sm" type="button" data-del-spend="${x.id}">삭제</button>
+      </li>`).join("")}</ul>
+    </section>`).join("");
+
+    // 지난 기간
+    $("historyPanel").hidden = state.history.length === 0;
+    $("historyList").innerHTML = state.history.map((h) => `<li class="record">
+      <div class="record-top">
+        <span class="grow">${shortDate(h.start)} ~ ${shortDate(ymd(new Date(fromYmd(h.end).getTime() - DAY)))}</span>
+        <span class="amount${h.saved < 0 ? " over" : ""}">${h.saved < 0 ? won(h.saved) + " 초과" : won(h.saved) + " 모음"}</span>
+      </div>
+      ${h.salary ? `<div class="record-sub">월급 ${won(h.salary)} · 고정지출 ${won(h.fixed || 0)} · 소비 ${won(h.spent || 0)}</div>` : ""}
+    </li>`).join("");
+  }
+
+  // ---------- 입력 처리 ----------
+  for (let d = 1; d <= 31; d++) $("payday").insertAdjacentHTML("beforeend", `<option value="${d}">${d}일</option>`);
+  $("spendDate").value = ymd(today);
+
+  // 금액 칸은 입력하는 대로 쉼표를 붙입니다 (나중에 생기는 수정 칸도 포함).
+  document.addEventListener("input", (ev) => {
+    if (ev.target.classList?.contains("money")) ev.target.value = comma(digits(ev.target.value));
+  });
+
+  $("payday").addEventListener("change", () => {
+    state.payday = Number($("payday").value);
+    state.periodStart = ymd(periodFor(today, state.payday).start); // 기준일만 바뀐 거라 지난 기간으로 기록하지 않음
+    save(); render();
+  });
+
+  $("fixedSalary").addEventListener("change", () => { state.fixedSalary = $("fixedSalary").checked; save(); });
+
+  // 월급은 '확인'을 눌러야 저장되고, 이번 기간 월급으로 기록됩니다.
+  $("salaryForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const n = digits($("salary").value);
+    state.salary = n || null;
+    $("salary").blur();
+    save(); render();
+    if (n) flash($("salaryHelp"), `${monthLabel(ymd(periodFor(today, state.payday).start))} ${won(n)}으로 저장했어요.`);
+  });
+
+  $("fixedForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const amount = digits($("fixedAmount").value);
+    if (!amount) { $("fixedAmount").focus(); return; }
+    state.fixed.push({ id: uid(), name: $("fixedName").value.trim(), amount });
+    $("fixedName").value = ""; $("fixedAmount").value = "";
+    save(); render(); $("fixedName").focus();
+  });
+
+  $("spendForm").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    const amount = digits($("spendAmount").value);
+    if (!amount) { $("spendAmount").focus(); return; }
+    state.expenses.push({ id: uid(), ts: Date.now(), date: $("spendDate").value || ymd(today), memo: $("spendMemo").value.trim(), amount });
+    $("spendAmount").value = ""; $("spendMemo").value = "";
+    save(); render(); $("spendAmount").focus();
+  });
+
+  // 고정지출 수정 저장
+  document.addEventListener("submit", (ev) => {
+    const form = ev.target.closest("form[data-edit-fixed]");
+    if (!form) return;
+    ev.preventDefault();
+    const x = state.fixed.find((f) => f.id === form.dataset.editFixed);
+    const amount = digits(form.elements.amount.value);
+    if (!x || !amount) { form.elements.amount.focus(); return; }
+    x.name = form.elements.name.value.trim();
+    x.amount = amount;
+    editingFixed = null;
+    save(); render();
+  });
+
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && editingFixed && ev.target.closest("form[data-edit-fixed]")) { editingFixed = null; render(); }
+  });
+
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-edit-fixed-btn],[data-cancel-edit],[data-del-fixed],[data-del-spend]");
+    if (!btn) return;
+    if (btn.hasAttribute("data-edit-fixed-btn")) {
+      editingFixed = btn.dataset.editFixedBtn;
+      render();
+      document.querySelector("form[data-edit-fixed] input[name=name]")?.focus();
+    } else if (btn.hasAttribute("data-cancel-edit")) {
+      editingFixed = null; render();
+    } else if (btn.dataset.delFixed) {
+      const x = state.fixed.find((f) => f.id === btn.dataset.delFixed);
+      if (x && confirm(`고정지출 '${x.name || won(x.amount)}' 을(를) 삭제할까요?`)) {
+        state.fixed = state.fixed.filter((f) => f.id !== x.id); save(); render();
+      }
+    } else {
+      const x = state.expenses.find((f) => f.id === btn.dataset.delSpend);
+      if (x && confirm(`'${x.memo || "소비"} ${won(x.amount)}' 을(를) 삭제할까요?`)) {
+        state.expenses = state.expenses.filter((f) => f.id !== x.id); save(); render();
+      }
+    }
+  });
+
+  // 도움말 자리에 잠깐 메시지를 보여줬다가 원래 문구로 돌립니다.
+  function flash(el, text) {
+    if (!el.dataset.orig) el.dataset.orig = el.textContent;
+    el.textContent = text;
+    clearTimeout(flash.t);
+    flash.t = setTimeout(() => { el.textContent = el.dataset.orig; }, 2500);
+  }
+
+  rollover();
+  render();
+</script>
+</body>
+</html>

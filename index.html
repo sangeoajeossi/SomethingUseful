@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Something Useful</title>
+<meta name="description" content="내가 쓰려고 만든 작은 도구 모음">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131210" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Useful">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Something Useful</h1>
+  <p class="sub">내가 쓰려고 만든 작은 도구들</p>
+</header>
+<main>
+  <label class="visually-hidden" for="q">도구 검색</label>
+  <input id="q" class="search" type="search" placeholder="도구 검색" autocomplete="off" hidden>
+  <div id="grid"></div>
+  <p id="empty" class="empty" hidden>검색 결과가 없어요.</p>
+  <p id="ios-hint" class="hint-box" hidden>
+    Safari 하단 <strong>공유</strong> 버튼 → <strong>홈 화면에 추가</strong>를 누르면 앱처럼 쓸 수 있어요.
+  </p>
+</main>
+<script src="./assets/tools.js"></script>
+<script src="./assets/app.js"></script>
+</body>
+</html>
