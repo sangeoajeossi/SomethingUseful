@@ -25,6 +25,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* display: flex 같은 걸 준 요소도 hidden 이면 확실히 숨김 */
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
