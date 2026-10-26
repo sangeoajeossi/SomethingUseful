@@ -14,6 +14,12 @@ const PRECACHE = [
   "./icons/icon-512.png",
   "./tools/budget/",
   "./tools/notes/",
+  "./tools/liar/",
+  "./tools/liar/words.js",
+  "./tools/liar/game.js",
+  "./tools/liar/net.js",
+  "./tools/liar/firebase-config.js",
+  "./tools/liar/main.js",
 ];
 
 self.addEventListener("install", (e) => {
