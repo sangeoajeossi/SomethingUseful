@@ -1,12 +1,7 @@
 // Firebase 설정. 이 값이 있으면 "각자 폰으로" 모드가 켜져요.
-// Firebase 콘솔 → 프로젝트 설정 → 내 앱(웹 앱) 의 firebaseConfig 그대로.
-// 이 값들은 비밀이 아니라 공개 저장소에 올라가도 괜찮아요. 누가 뭘 할 수 있는지는 firebase.rules.json 이 막아 줍니다.
+// 라이어 게임은 Realtime Database 만 쓰기 때문에 데이터베이스 주소 하나면 충분해요.
+// (Firebase 콘솔이 주는 apiKey, appId 같은 값은 로그인 등 다른 기능용이라 넣지 않아요.)
+// 접근 제한은 firebase.rules.json 이 담당합니다.
 window.FIREBASE_CONFIG = {
-  apiKey: "AIzaSyCoc5fKNioUIfRu3d3Oak7P-S6U6n3CCSE",
-  authDomain: "somethinguseful-794c5.firebaseapp.com",
   databaseURL: "https://somethinguseful-794c5-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "somethinguseful-794c5",
-  storageBucket: "somethinguseful-794c5.firebasestorage.app",
-  messagingSenderId: "772080700683",
-  appId: "1:772080700683:web:ef8b01f184efbf5130660e",
 };
