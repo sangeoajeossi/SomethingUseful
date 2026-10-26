@@ -61,8 +61,12 @@
   </details>
 
   <section class="panel">
-    <h2>소비 입력</h2>
+    <h2>입력</h2>
     <form id="spendForm" class="stack" autocomplete="off">
+      <div class="seg" role="radiogroup" aria-label="종류">
+        <label class="seg-opt"><input type="radio" name="kind" value="spend" checked> 소비</label>
+        <label class="seg-opt"><input type="radio" name="kind" value="income"> 입금</label>
+      </div>
       <div class="inline">
         <input class="input money" id="spendAmount" inputmode="numeric" placeholder="금액" aria-label="금액" required>
         <input class="input" id="spendMemo" placeholder="내용 (선택)" aria-label="내용">
@@ -149,7 +153,10 @@
   const today = fromYmd(ymd(new Date()));
   viewDate = ymd(new Date(today.getTime() - DAY));
   const fixedTotal = () => state.fixed.reduce((a, x) => a + x.amount, 0);
-  const sumExpenses = (from, to) => state.expenses.filter((x) => x.date >= from && x.date < to).reduce((a, x) => a + x.amount, 0);
+  // expenses 배열에 소비와 입금이 같이 들어 있어요. type 이 "income" 이면 입금, 없으면 소비.
+  const isIncome = (x) => x.type === "income";
+  const sumExpenses = (from, to) => state.expenses.filter((x) => !isIncome(x) && x.date >= from && x.date < to).reduce((a, x) => a + x.amount, 0);
+  const sumIncome = (from, to) => state.expenses.filter((x) => isIncome(x) && x.date >= from && x.date < to).reduce((a, x) => a + x.amount, 0);
 
   // 월급날이 지나 새 기간이 시작됐으면: 지난 기간(월급 텀)의 월급·고정지출·소비·모은 금액을 기록에 남기고,
   // 고정 월급이 아니면 월급을 비웁니다.
@@ -161,8 +168,9 @@
       const old = periodFor(fromYmd(state.periodStart), state.payday);
       if (state.salary) {
         const spent = sumExpenses(ymd(old.start), ymd(old.end));
+        const income = sumIncome(ymd(old.start), ymd(old.end));
         const fixed = fixedTotal();
-        state.history.unshift({ start: ymd(old.start), end: ymd(old.end), salary: state.salary, fixed, spent, saved: state.salary - fixed - spent });
+        state.history.unshift({ start: ymd(old.start), end: ymd(old.end), salary: state.salary, income, fixed, spent, saved: state.salary + income - fixed - spent });
       }
       if (!state.fixedSalary) state.salary = null;
       showNotice("새 기간이 시작됐어요." + (state.fixedSalary ? "" : " 이번 달 월급을 입력해 주세요."));
@@ -181,13 +189,14 @@
     const daysLeft = Math.max(1, Math.round((end - today) / DAY));
     const spentPeriod = sumExpenses(s, e);
     const spentToday = sumExpenses(t, tomorrow);
+    const incomePeriod = sumIncome(s, e);
     const ready = state.salary > 0;
 
     $("periodLabel").textContent = `${shortDate(s)} ~ ${shortDate(ymd(new Date(end.getTime() - DAY)))}`;
     $("daysLeft").textContent = `${daysLeft}일`;
 
     if (ready) {
-      const pool = state.salary - fixedTotal() - spentPeriod;        // 월급날까지 남은 금액 = 모은 금액
+      const pool = state.salary + incomePeriod - fixedTotal() - spentPeriod; // 월급날까지 남은 금액 = 모은 금액 (입금은 여기에 더해짐)
       const todayBudget = (pool + spentToday) / daysLeft;            // 오늘 하루 예산 (오늘 쓰기 전 기준이라 하루 동안 고정)
       const todayLeft = todayBudget - spentToday;                    // 오늘 더 쓸 수 있는 금액 (초과하면 마이너스)
       const fromTomorrow = daysLeft > 1 ? pool / (daysLeft - 1) : null; // 내일부터 하루 예산 (소비 넣을 때마다 바로 바뀜)
@@ -241,36 +250,47 @@
       <button class="btn btn-sm" type="button" data-del-fixed="${x.id}">삭제</button>
     </li>`).join("");
 
-    // 오늘 지출: 메인 화면에는 오늘 것만. 지난 날짜는 아래 '기록 보기'에서.
+    // 오늘 지출: 메인 화면에는 오늘 것만. 지난 날짜는 아래 '기록 보기'에서. 입금은 + 로 표시.
     const spendItem = (x) => `<li>
-      <span class="grow">${esc(x.memo || "소비")}</span>
-      <span class="amount">${won(x.amount)}</span>
+      <span class="grow">${isIncome(x) ? "입금" + (x.memo ? " · " + esc(x.memo) : "") : esc(x.memo || "소비")}</span>
+      <span class="amount${isIncome(x) ? " plus" : ""}">${isIncome(x) ? "+" : ""}${won(x.amount)}</span>
       <button class="btn btn-sm" type="button" data-del-spend="${x.id}">삭제</button>
     </li>`;
     const ofDay = (date) => state.expenses.filter((x) => x.date === date).sort((a, b) => b.ts - a.ts);
+    // 하루 합계 문구: "9,000원", 입금이 있으면 "9,000원 · 입금 +50,000원"
+    const dayTotalText = (items) => {
+      const spent = items.filter((x) => !isIncome(x)).reduce((a, x) => a + x.amount, 0);
+      const income = items.filter(isIncome).reduce((a, x) => a + x.amount, 0);
+      if (!items.length) return "";
+      return (spent || !income ? won(spent) : "") + (income ? (spent ? " · " : "") + "입금 +" + won(income) : "");
+    };
     const todayItems = ofDay(t);
     $("todayEmpty").hidden = todayItems.length > 0;
     $("todayList").innerHTML = todayItems.map(spendItem).join("");
-    $("todayTotal").textContent = todayItems.length ? won(spentToday) : "";
+    $("todayTotal").textContent = dayTotalText(todayItems);
 
     // 기록 보기: 고른 날짜 하루치
     const yesterday = ymd(new Date(today.getTime() - DAY));
     if (document.activeElement !== $("dayPick")) $("dayPick").value = viewDate;
     const dayItems = ofDay(viewDate);
     $("dayLabel").textContent = dateLabel(viewDate) + (viewDate === t ? " · 오늘" : viewDate === yesterday ? " · 어제" : "");
-    $("dayTotal").textContent = dayItems.length ? won(dayItems.reduce((a, x) => a + x.amount, 0)) : "";
+    $("dayTotal").textContent = dayTotalText(dayItems);
     $("dayEmpty").hidden = dayItems.length > 0;
     $("dayList").innerHTML = dayItems.map(spendItem).join("");
 
     // 기록 보기: 이번 기간 날짜별 합계 (최신순). 누르면 위 날짜 보기로 이동.
     const periodItems = state.expenses.filter((x) => x.date >= s && x.date < e);
     const byDate = new Map();
-    for (const x of periodItems) byDate.set(x.date, (byDate.get(x.date) || 0) + x.amount);
+    for (const x of periodItems) {
+      const d = byDate.get(x.date) || { spent: 0, income: 0 };
+      if (isIncome(x)) d.income += x.amount; else d.spent += x.amount;
+      byDate.set(x.date, d);
+    }
     const days = [...byDate].sort((a, b) => b[0].localeCompare(a[0]));
     $("periodEmpty").hidden = days.length > 0;
-    $("periodDays").innerHTML = days.map(([date, sum]) => `<li>
-      <span class="grow">${dateLabel(date)}${date === t ? " · 오늘" : ""}</span>
-      <span class="amount">${won(sum)}</span>
+    $("periodDays").innerHTML = days.map(([date, d]) => `<li>
+      <span class="grow">${dateLabel(date)}${date === t ? " · 오늘" : ""}${d.income ? ` <span class="record-sub">입금 +${won(d.income)}</span>` : ""}</span>
+      <span class="amount">${won(d.spent)}</span>
       <button class="btn btn-sm" type="button" data-view-day="${date}"${date === viewDate ? " disabled" : ""}>보기</button>
     </li>`).join("");
 
@@ -281,7 +301,7 @@
         <span class="grow">${shortDate(h.start)} ~ ${shortDate(ymd(new Date(fromYmd(h.end).getTime() - DAY)))}</span>
         <span class="amount${h.saved < 0 ? " over" : ""}">${h.saved < 0 ? won(h.saved) + " 초과" : won(h.saved) + " 모음"}</span>
       </div>
-      ${h.salary ? `<div class="record-sub">월급 ${won(h.salary)} · 고정지출 ${won(h.fixed || 0)} · 소비 ${won(h.spent || 0)}</div>` : ""}
+      ${h.salary ? `<div class="record-sub">월급 ${won(h.salary)}${h.income ? ` · 입금 +${won(h.income)}` : ""} · 고정지출 ${won(h.fixed || 0)} · 소비 ${won(h.spent || 0)}</div>` : ""}
     </li>`).join("");
   }
 
@@ -325,10 +345,17 @@
     ev.preventDefault();
     const amount = digits($("spendAmount").value);
     if (!amount) { $("spendAmount").focus(); return; }
-    state.expenses.push({ id: uid(), ts: Date.now(), date: $("spendDate").value || ymd(today), memo: $("spendMemo").value.trim(), amount });
+    const income = ev.target.elements.kind.value === "income";
+    const item = { id: uid(), ts: Date.now(), date: $("spendDate").value || ymd(today), memo: $("spendMemo").value.trim(), amount };
+    if (income) item.type = "income";
+    state.expenses.push(item);
     $("spendAmount").value = ""; $("spendMemo").value = "";
+    if (income) { ev.target.elements.kind.value = "spend"; syncKind(); } // 입금은 가끔이라 넣고 나면 소비로 되돌려요
     save(); render(); $("spendAmount").focus();
   });
+  // 소비/입금에 따라 내용 칸 안내만 바꿔요.
+  function syncKind() { $("spendMemo").placeholder = $("spendForm").elements.kind.value === "income" ? "어디서 (선택)" : "내용 (선택)"; }
+  $("spendForm").addEventListener("change", (ev) => { if (ev.target.name === "kind") syncKind(); });
 
   // 고정지출 수정 저장
   document.addEventListener("submit", (ev) => {
@@ -373,7 +400,7 @@
       }
     } else {
       const x = state.expenses.find((f) => f.id === btn.dataset.delSpend);
-      if (x && confirm(`'${x.memo || "소비"} ${won(x.amount)}' 을(를) 삭제할까요?`)) {
+      if (x && confirm(`'${isIncome(x) ? "입금 " : ""}${x.memo || (isIncome(x) ? "" : "소비")} ${won(x.amount)}' 을(를) 삭제할까요?`)) {
         state.expenses = state.expenses.filter((f) => f.id !== x.id); save(); render();
       }
     }
