@@ -106,10 +106,12 @@
     if (s.players) pp.players = s.players;
     if (s.liars) pp.liars = s.liars;
     if (Array.isArray(s.cats) && s.cats.length) pp.cats = new Set(s.cats.filter((id) => CATS.some((c) => c.id === id)));
+    // 저장 뒤에 새로 생긴 주제는 자동으로 켜 줘요 (known 에 없는 주제 = 처음 보는 주제).
+    if (Array.isArray(s.known)) CATS.forEach((c) => { if (!s.known.includes(c.id)) pp.cats.add(c.id); });
     if (Array.isArray(s.names)) pp.names = s.names;
     pp.revealLiar = !!s.revealLiar;
   } catch {}
-  function savePP() { localStorage.setItem(PP_KEY, JSON.stringify({ players: pp.players, liars: pp.liars, cats: [...pp.cats], names: pp.names, revealLiar: pp.revealLiar })); }
+  function savePP() { localStorage.setItem(PP_KEY, JSON.stringify({ players: pp.players, liars: pp.liars, cats: [...pp.cats], known: CATS.map((c) => c.id), names: pp.names, revealLiar: pp.revealLiar })); }
   const wordLabel = (reveal, role) => (reveal && role === "liar" ? "당신은 라이어예요 🤫" : "당신의 단어");
   function clampPP() {
     pp.players = Math.min(MAX, Math.max(MIN, pp.players));
