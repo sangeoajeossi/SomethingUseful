@@ -71,6 +71,9 @@
   .timer { font-size: 48px; }
   .timer.done { color: var(--danger); }
   .code { letter-spacing: 0.25em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .qr-wrap { margin-top: 14px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .qr { padding: 12px; background: #fff; border-radius: 12px; line-height: 0; } /* 다크 모드에서도 QR 주변은 흰색이어야 카메라가 읽어요 */
+  .qr svg { display: block; width: min(220px, 70vw); height: auto; }
   .input.code { text-transform: uppercase; letter-spacing: 0.25em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .words2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .words2 .w-ko { margin: 2px 0 0; font-size: 22px; font-weight: 700; overflow-wrap: anywhere; }
@@ -263,6 +266,11 @@
       <div class="row center-row">
         <button class="btn" type="button" id="onShare">링크 공유</button>
         <button class="btn" type="button" id="onCopy">코드 복사</button>
+        <button class="btn" type="button" id="onQr">QR</button>
+      </div>
+      <div class="qr-wrap" id="onQrBox" hidden>
+        <div class="qr" id="onQrSvg" role="img" aria-label="방 참여 링크 QR 코드"></div>
+        <p class="sub">카메라로 찍으면 바로 이 방으로 들어와요</p>
       </div>
     </section>
     <section class="panel">

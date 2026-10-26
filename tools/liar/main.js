@@ -309,6 +309,7 @@
   function attach(code) {
     if (on.unsub) on.unsub();
     on.code = code; on.selected = null; on.resolved.clear();
+    hideQr();
     idStore.setItem("su:liar:room", code);
     on.unsub = on.store.subscribe(code, onRoom);
   }
@@ -527,6 +528,23 @@
   };
   $("onCopy").onclick = async () => {
     try { await navigator.clipboard.writeText(on.code); say("코드를 복사했어요"); } catch { say("코드: " + on.code, true); }
+  };
+  // QR: 방 링크를 QR 코드로. 라이브러리는 누를 때만 CDN 에서 불러와요 (대기실은 어차피 온라인이라 괜찮음).
+  const QR_SRC = "https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js";
+  const loadQr = () => window.qrcode ? Promise.resolve() : new Promise((ok, fail) => {
+    const s = document.createElement("script");
+    s.src = QR_SRC; s.onload = ok; s.onerror = () => fail(new Error("QR 코드 라이브러리를 못 불러왔어요. 인터넷을 확인해 주세요"));
+    document.head.appendChild(s);
+  });
+  function hideQr() { $("onQrBox").hidden = true; $("onQr").textContent = "QR"; }
+  $("onQr").onclick = async () => {
+    if (!$("onQrBox").hidden) return hideQr();
+    try { await loadQr(); } catch (e) { return say(e.message, true); }
+    const qr = window.qrcode(0, "M");
+    qr.addData(roomUrl(on.code));
+    qr.make();
+    $("onQrSvg").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    $("onQrBox").hidden = false; $("onQr").textContent = "QR 닫기";
   };
 
   // ---------- 스테퍼 (한 폰 설정 + 방장 설정) ----------
