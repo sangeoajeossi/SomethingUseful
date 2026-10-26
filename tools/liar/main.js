@@ -161,10 +161,19 @@
   $("ppNext").onclick = () => {
     game.shown = false; game.idx++;
     if (game.idx < game.ids.length) return renderReveal();
-    game.first = game.ids[G.rand(game.ids.length)];
-    $("ppFirst").textContent = ppName(game.first);
-    show("pp-discuss");
+    ppDiscuss(false);
   };
+  // 토론 화면. again 이면 투표 한 번 하고 돌아온 것 (남은 인원 표시, 먼저 말할 사람은 남은 사람 중에서 다시 뽑음).
+  function ppDiscuss(again) {
+    const alive = [...game.alive];
+    const liars = alive.filter((id) => game.roles[id] === "liar").length;
+    game.first = alive[G.rand(alive.length)];
+    $("ppFirst").textContent = ppName(game.first);
+    $("ppDiscussInfo").textContent = again ? `다시 토론 · 남은 ${alive.length}명 · 라이어 ${liars}명` : "";
+    $("ppDiscussInfo").hidden = !again;
+    timerStop(); timer.left = timer.total; timerRender();
+    show("pp-discuss");
+  }
   $("ppToVote").onclick = () => { timerStop(); game.selected = null; renderVote(); show("pp-vote"); };
 
   function renderVote() {
@@ -192,13 +201,13 @@
     $("ppResultName").textContent = ppName(out) + " 은(는)";
     $("ppResultRole").textContent = role === "liar" ? "라이어였어요!" : "시민이었어요";
     $("ppResultRole").className = "big " + (role === "liar" ? "role-liar" : "");
-    $("ppResultSub").textContent = game.win ? "" : `라이어가 아직 ${liarsLeft}명 남아 있어요.`;
-    $("ppResultNext").textContent = game.win ? "최종 결과 보기" : "다시 투표하기";
+    $("ppResultSub").textContent = game.win ? "" : `라이어가 아직 ${liarsLeft}명 남아 있어요. 다시 토론하고 투표해요.`;
+    $("ppResultNext").textContent = game.win ? "최종 결과 보기" : "다시 토론하기";
     show("pp-result");
   };
   $("ppResultNext").onclick = () => {
     if (game.win) { renderEnd(); show("pp-end"); }
-    else { game.selected = null; renderVote(); show("pp-vote"); }
+    else { game.selected = null; ppDiscuss(true); }
   };
   function renderEnd() {
     $("ppWinnerText").textContent = winText(game.win);
@@ -354,11 +363,35 @@
       round: { n, v: 0, catName: words.catName, words: { citizen: words.citizen, liar: words.liar }, roles, alive, first: ids[G.rand(ids.length)] },
     }).catch((e) => say("시작하지 못했어요: " + e.message, true));
   }
-  const openVote = (r) => on.store.update(on.code, { phase: "vote", "round/votes": null, "round/last": null, "round/v": (r.v || 0) + 1 }).catch(() => {});
+  const openVote = (r) => on.store.update(on.code, { phase: "vote", "round/votes": null, "round/last": null, "round/timerEnd": null, "round/v": (r.v || 0) + 1 }).catch(() => {});
+  // 투표 결과를 보고 난 뒤 다시 토론으로. 먼저 말할 사람은 남은 사람 중에서 다시 뽑고, 지난 투표 결과(last)는 토론 화면에 보여 주려고 남겨 둬요.
+  const reDiscuss = (r) => {
+    const alive = Object.keys(r.alive || {});
+    return on.store.update(on.code, { phase: "play", "round/votes": null, "round/timerEnd": null, "round/first": alive[G.rand(alive.length)] || null }).catch(() => {});
+  };
+  // 방장이 켜는 토론 타이머. 끝나는 시각(ms)만 방에 저장하고 각자 폰이 알아서 세요.
+  const DISCUSS_MS = 3 * 60 * 1000;
+  const setTimer = (on_) => on.store.update(on.code, { "round/timerEnd": on_ ? Date.now() + DISCUSS_MS : null }).catch(() => {});
+  let onTimerIv = null;
+  function renderOnTimer(end) {
+    clearInterval(onTimerIv); onTimerIv = null;
+    const box = $("onTimerBox");
+    if (!end) { box.hidden = true; return; }
+    box.hidden = false;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      $("onTimer").textContent = left === 0 ? "끝!" : `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+      $("onTimer").classList.toggle("done", left === 0);
+      if (left === 0) { clearInterval(onTimerIv); onTimerIv = null; try { navigator.vibrate && navigator.vibrate(300); } catch {} }
+    };
+    tick();
+    onTimerIv = setInterval(tick, 500);
+  }
 
   function renderOnline(room) {
     const host = room.hostId === on.pid;
     const players = playersOf(room);
+    if (room.phase !== "play") renderOnTimer(null);
     if (room.phase === "lobby") {
       $("onLobbyCode").textContent = on.code;
       $("onLobbyCount").textContent = `${players.length}명 · ${MIN}~${MAX}명`;
@@ -401,10 +434,17 @@
     $("onPlayTitle").textContent = `남은 ${aliveIds.length}명 · 라이어 ${liarsLeft}명`;
     let note = "", items = [], actions = [];
 
+    renderOnTimer(room.phase === "play" ? r.timerEnd : null);
     if (room.phase === "play") {
-      note = `${r.n}번째 판 · 먼저 말할 사람: ${pname(room, r.first)}` + (host ? "" : " · 방장이 투표를 열면 투표할 수 있어요");
+      const last = r.last;
+      const lastText = !last ? "" : last.out ? ` · 지난 투표: ${pname(room, last.out)}은(는) ${last.role === "liar" ? "라이어" : "시민"}` : " · 지난 투표: 동점";
+      note = `${r.n}번째 판${last ? " · 다시 토론" : ""} · 먼저 말할 사람: ${pname(room, r.first)}${lastText}` + (host ? "" : " · 방장이 투표를 열면 투표할 수 있어요");
       items = players.map((p) => ({ id: p.id, name: p.name, out: !alive[p.id], sub: alive[p.id] ? (p.id === r.first ? "먼저" : "") : "탈락", disabled: true }));
-      if (host) actions.push(["투표 열기", "primary", () => openVote(r)]);
+      if (host) {
+        actions.push(["투표 열기", "primary", () => openVote(r)]);
+        const running = r.timerEnd && r.timerEnd > Date.now();
+        actions.push([running ? "타이머 끄기" : "3분 타이머", "", () => setTimer(!running)]);
+      }
     } else if (room.phase === "vote") {
       const voted = aliveIds.filter((id) => votes[id]).length;
       const canPick = myAlive && !votes[me];
@@ -427,7 +467,7 @@
       else note = "동점이라 아무도 안 나갔어요. 다시 투표해요";
       if (!host) note += " · 방장을 기다리는 중";
       items = players.map((p) => ({ id: p.id, name: p.name, out: !alive[p.id], sub: count[p.id] ? `${count[p.id]}표` : !alive[p.id] ? "탈락" : "", disabled: true }));
-      if (host) actions.push(r.winner ? ["최종 결과 보기", "primary", () => on.store.update(on.code, { phase: "end" }).catch(() => {})] : ["다시 투표", "primary", () => openVote(r)]);
+      if (host) actions.push(r.winner ? ["최종 결과 보기", "primary", () => on.store.update(on.code, { phase: "end" }).catch(() => {})] : ["다시 토론", "primary", () => reDiscuss(r)]);
     }
     $("onPlayNote").textContent = note; $("onPlayNote").hidden = !note;
     $("onGrid").innerHTML = gridHTML(items);

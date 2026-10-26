@@ -27,6 +27,7 @@
           "v": { ".validate": "newData.isNumber()" },
           "catName": { ".validate": "newData.isString() && newData.val().length <= 16" },
           "first": { ".validate": "newData.isString() && newData.val().length <= 32" },
+          "timerEnd": { ".validate": "newData.isNumber()" },
           "winner": { ".validate": "newData.isString() && newData.val().matches(/^(citizen|liar)$/)" },
           "words": {
             "$side": {
