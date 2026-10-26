@@ -75,15 +75,35 @@
   </section>
 
   <section class="panel">
-    <h2>이번 기간 소비 <span class="hint" id="periodLabel"></span></h2>
-    <p class="empty" id="spendEmpty">아직 입력한 소비가 없어요.</p>
-    <div id="spendList"></div>
+    <h2>오늘 지출 <span class="hint" id="todayTotal"></span></h2>
+    <p class="empty" id="todayEmpty">오늘은 아직 쓴 게 없어요.</p>
+    <ul class="list" id="todayList"></ul>
   </section>
 
-  <section class="panel" id="historyPanel" hidden>
-    <h2>기록 <span class="hint">월급 텀별</span></h2>
-    <ul class="list" id="historyList"></ul>
-  </section>
+  <details class="panel" id="historyBox">
+    <summary>기록 보기</summary>
+    <div class="field">
+      <div class="inline">
+        <button class="btn" type="button" id="dayPrev" aria-label="하루 전">◀</button>
+        <input class="input" type="date" id="dayPick" aria-label="날짜 선택">
+        <button class="btn" type="button" id="dayNext" aria-label="하루 뒤">▶</button>
+      </div>
+    </div>
+    <section class="day">
+      <h3><span id="dayLabel"></span><span id="dayTotal"></span></h3>
+      <p class="empty" id="dayEmpty">이 날은 기록이 없어요.</p>
+      <ul class="list" id="dayList"></ul>
+    </section>
+    <div class="field" style="margin-top: 16px">
+      <p class="label">이번 기간 날짜별 <span class="hint" id="periodLabel"></span></p>
+      <p class="empty" id="periodEmpty">아직 입력한 소비가 없어요.</p>
+      <ul class="list" id="periodDays"></ul>
+    </div>
+    <div class="field" id="historyPanel" hidden>
+      <p class="label">지난 월급 텀</p>
+      <ul class="list" id="historyList"></ul>
+    </div>
+  </details>
 </main>
 <script src="../../assets/app.js"></script>
 <script>
@@ -119,6 +139,7 @@
   const defaults = { payday: 25, salary: null, fixedSalary: false, fixed: [], expenses: [], periodStart: null, history: [] };
   let state = load();
   let editingFixed = null; // 지금 수정 중인 고정지출 id
+  let viewDate = null;     // '기록 보기'에서 보고 있는 날짜 (아래에서 어제로 초기화)
   function load() {
     try { return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; }
     catch { return { ...defaults }; }
@@ -126,6 +147,7 @@
   function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
 
   const today = fromYmd(ymd(new Date()));
+  viewDate = ymd(new Date(today.getTime() - DAY));
   const fixedTotal = () => state.fixed.reduce((a, x) => a + x.amount, 0);
   const sumExpenses = (from, to) => state.expenses.filter((x) => x.date >= from && x.date < to).reduce((a, x) => a + x.amount, 0);
 
@@ -219,19 +241,38 @@
       <button class="btn btn-sm" type="button" data-del-fixed="${x.id}">삭제</button>
     </li>`).join("");
 
-    // 이번 기간 소비 (날짜별 묶음, 최신순)
-    const items = state.expenses.filter((x) => x.date >= s && x.date < e).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
-    $("spendEmpty").hidden = items.length > 0;
+    // 오늘 지출: 메인 화면에는 오늘 것만. 지난 날짜는 아래 '기록 보기'에서.
+    const spendItem = (x) => `<li>
+      <span class="grow">${esc(x.memo || "소비")}</span>
+      <span class="amount">${won(x.amount)}</span>
+      <button class="btn btn-sm" type="button" data-del-spend="${x.id}">삭제</button>
+    </li>`;
+    const ofDay = (date) => state.expenses.filter((x) => x.date === date).sort((a, b) => b.ts - a.ts);
+    const todayItems = ofDay(t);
+    $("todayEmpty").hidden = todayItems.length > 0;
+    $("todayList").innerHTML = todayItems.map(spendItem).join("");
+    $("todayTotal").textContent = todayItems.length ? won(spentToday) : "";
+
+    // 기록 보기: 고른 날짜 하루치
+    const yesterday = ymd(new Date(today.getTime() - DAY));
+    if (document.activeElement !== $("dayPick")) $("dayPick").value = viewDate;
+    const dayItems = ofDay(viewDate);
+    $("dayLabel").textContent = dateLabel(viewDate) + (viewDate === t ? " · 오늘" : viewDate === yesterday ? " · 어제" : "");
+    $("dayTotal").textContent = dayItems.length ? won(dayItems.reduce((a, x) => a + x.amount, 0)) : "";
+    $("dayEmpty").hidden = dayItems.length > 0;
+    $("dayList").innerHTML = dayItems.map(spendItem).join("");
+
+    // 기록 보기: 이번 기간 날짜별 합계 (최신순). 누르면 위 날짜 보기로 이동.
+    const periodItems = state.expenses.filter((x) => x.date >= s && x.date < e);
     const byDate = new Map();
-    for (const x of items) { if (!byDate.has(x.date)) byDate.set(x.date, []); byDate.get(x.date).push(x); }
-    $("spendList").innerHTML = [...byDate].map(([date, list]) => `<section class="day">
-      <h3><span>${dateLabel(date)}${date === t ? " · 오늘" : ""}</span><span>${won(list.reduce((a, x) => a + x.amount, 0))}</span></h3>
-      <ul class="list">${list.map((x) => `<li>
-        <span class="grow">${esc(x.memo || "소비")}</span>
-        <span class="amount">${won(x.amount)}</span>
-        <button class="btn btn-sm" type="button" data-del-spend="${x.id}">삭제</button>
-      </li>`).join("")}</ul>
-    </section>`).join("");
+    for (const x of periodItems) byDate.set(x.date, (byDate.get(x.date) || 0) + x.amount);
+    const days = [...byDate].sort((a, b) => b[0].localeCompare(a[0]));
+    $("periodEmpty").hidden = days.length > 0;
+    $("periodDays").innerHTML = days.map(([date, sum]) => `<li>
+      <span class="grow">${dateLabel(date)}${date === t ? " · 오늘" : ""}</span>
+      <span class="amount">${won(sum)}</span>
+      <button class="btn btn-sm" type="button" data-view-day="${date}"${date === viewDate ? " disabled" : ""}>보기</button>
+    </li>`).join("");
 
     // 지난 기간
     $("historyPanel").hidden = state.history.length === 0;
@@ -307,10 +348,19 @@
     if (ev.key === "Escape" && editingFixed && ev.target.closest("form[data-edit-fixed]")) { editingFixed = null; render(); }
   });
 
+  // 기록 보기: 날짜 고르기 / 하루씩 이동
+  const shiftDay = (d) => { viewDate = ymd(new Date(fromYmd(viewDate).getTime() + d * DAY)); render(); };
+  $("dayPick").addEventListener("change", () => { if (/^\d{4}-\d{2}-\d{2}$/.test($("dayPick").value)) { viewDate = $("dayPick").value; render(); } });
+  $("dayPrev").addEventListener("click", () => shiftDay(-1));
+  $("dayNext").addEventListener("click", () => shiftDay(1));
+
   document.addEventListener("click", (ev) => {
-    const btn = ev.target.closest("[data-edit-fixed-btn],[data-cancel-edit],[data-del-fixed],[data-del-spend]");
+    const btn = ev.target.closest("[data-edit-fixed-btn],[data-cancel-edit],[data-del-fixed],[data-del-spend],[data-view-day]");
     if (!btn) return;
-    if (btn.hasAttribute("data-edit-fixed-btn")) {
+    if (btn.dataset.viewDay) {
+      viewDate = btn.dataset.viewDay; render();
+      $("dayLabel").scrollIntoView({ block: "center", behavior: "smooth" });
+    } else if (btn.hasAttribute("data-edit-fixed-btn")) {
       editingFixed = btn.dataset.editFixedBtn;
       render();
       document.querySelector("form[data-edit-fixed] input[name=name]")?.focus();
