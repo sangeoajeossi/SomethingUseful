@@ -19,7 +19,7 @@ icons/                  앱 아이콘
 
 ## 도구 추가하는 법
 
-1. `tools/새이름/index.html` 을 만든다. `tools/notes/index.html` 을 복사해서 시작하면 편하다.
+1. `tools/새이름/index.html` 을 만든다. `tools/budget/index.html` 을 복사해서 시작하면 편하다.
    - 공통 파일은 `../../assets/style.css`, `../../assets/app.js` 처럼 상대 경로로 부른다.
    - 데이터 저장은 `localStorage` 면 충분하다. 키 이름은 `su:도구이름` 식으로.
 2. `assets/tools.js` 에 한 줄 추가한다.
